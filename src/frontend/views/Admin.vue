@@ -682,6 +682,7 @@
               <option value="linux">Linux (Ubuntu/Debian/CentOS)</option>
               <option value="alpine">Alpine Linux</option>
               <option value="openwrt">OpenWrt / LEDE / ImmortalWrt</option>
+              <option value="mac">macOS (Intel / Apple Silicon)</option>
               <option value="windows">Windows</option>
             </select>
           </div>
@@ -1575,6 +1576,7 @@ const getCustomInstallCommand = () => {
   const shell = targetOs.value === 'alpine' || targetOs.value === 'openwrt' ? 'sh' : 'bash'
   const script = targetOs.value === 'alpine' ? 'install-alpine.sh'
     : targetOs.value === 'openwrt' ? 'install-openwrt.sh'
+    : targetOs.value === 'mac' ? 'install-mac.sh'
     : 'install.sh'
   let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -collect_interval=${collectInterval.value} -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value ?? 1}`
   if (customCt.value) cmd += ` -ct=${customCt.value}`

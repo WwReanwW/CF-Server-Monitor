@@ -365,22 +365,36 @@ get_swap_stats() {
     local swap_used=0
     
     if [ -n "${swap_usage}" ]; then
-        swap_total=$(echo "${swap_usage}" | awk '{
-            val = $4;
-            suffix = substr(val, length(val));
-            num = substr(val, 1, length(val)-1) + 0;
-            if (suffix == "G") num = num * 1024;
-            printf "%.0f", num;
-        }')
+        swap_total=$(echo "${swap_usage}" | awk '
+            /total =/ {
+                for (i=1; i<=NF; i++) {
+                    if ($i == "=") {
+                        val = $(i+1);
+                        suffix = substr(val, length(val));
+                        num = substr(val, 1, length(val)-1) + 0;
+                        if (suffix == "G") num = num * 1024;
+                        printf "%.0f", num;
+                        exit;
+                    }
+                }
+            }
+        ')
         swap_total=${swap_total:-0}
         
-        swap_used=$(echo "${swap_usage}" | awk '{
-            val = $7;
-            suffix = substr(val, length(val));
-            num = substr(val, 1, length(val)-1) + 0;
-            if (suffix == "G") num = num * 1024;
-            printf "%.0f", num;
-        }')
+        swap_used=$(echo "${swap_usage}" | awk '
+            /used =/ {
+                for (i=1; i<=NF; i++) {
+                    if ($i == "=") {
+                        val = $(i+1);
+                        suffix = substr(val, length(val));
+                        num = substr(val, 1, length(val)-1) + 0;
+                        if (suffix == "G") num = num * 1024;
+                        printf "%.0f", num;
+                        exit;
+                    }
+                }
+            }
+        ')
         swap_used=${swap_used:-0}
     fi
     
@@ -562,6 +576,9 @@ PREV_LOOP_TIME=$(date +%s)
 OS="$(sw_vers -productName 2>/dev/null || echo "macOS") $(sw_vers -productVersion 2>/dev/null || echo "")"
 ARCH=$(uname -m)
 CPU_INFO=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")
+if [ -z "${CPU_INFO:-}" ] || [ "${CPU_INFO}" = "unknown" ]; then
+    CPU_INFO=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Chip:" | awk -F': ' '{print $2}' | xargs || echo "")
+fi
 [ -z "${CPU_INFO:-}" ] && CPU_INFO="${ARCH}"
 CPU_CORES=$(sysctl -n hw.ncpu 2>/dev/null || echo "1")
 
@@ -602,7 +619,7 @@ while true; do
         $1 !~ /tmpfs/ &&
         $1 !~ /^map/ &&
         $1 !~ /automount/ &&
-        ($NF == "/" || $NF !~ /^\/System\/Volumes\//) { 
+        $NF !~ /\/Volumes\// { 
             total+=$2; used+=$3
         } 
         END {print total, used}
@@ -618,7 +635,18 @@ while true; do
     BOOT_TIME=""
     boot_time_raw=$(sysctl kern.boottime 2>/dev/null || echo "")
     if [ -n "${boot_time_raw:-}" ]; then
-        BOOT_TIME=$(echo "${boot_time_raw}" | awk '{print $4}' | tr -d ',')
+        BOOT_TIME=$(echo "${boot_time_raw}" | awk '
+            {
+                for (i=1; i<=NF; i++) {
+                    if ($i == "sec") {
+                        val = $(i+2);
+                        gsub(/,/, "", val);
+                        print val;
+                        exit;
+                    }
+                }
+            }
+        ')
         BOOT_TIME=${BOOT_TIME:-0}
         BOOT_TIME=$((BOOT_TIME * 1000))
     else
@@ -628,7 +656,7 @@ while true; do
     LOAD_AVG=""
     loadavg_raw=$(sysctl vm.loadavg 2>/dev/null || echo "")
     if [ -n "${loadavg_raw:-}" ]; then
-        LOAD_AVG=$(echo "${loadavg_raw}" | awk '{print $3, $4, $5}')
+        LOAD_AVG=$(echo "${loadavg_raw}" | sed 's/[{}]//g' | awk '{print $3, $4, $5}')
     fi
     LOAD_AVG=${LOAD_AVG:-"0 0 0"}
     
@@ -786,8 +814,7 @@ start_service() {
     step "加载 launchd 服务并激活监控探针..."
     
     if ! launchctl bootstrap system "${LAUNCHD_FILE}" 2>/dev/null; then
-        warn "bootstrap 方式加载失败，尝试兼容模式..."
-        launchctl load "${LAUNCHD_FILE}" 2>/dev/null || true
+        error "探针服务配置加载失败。请执行命令排查原因: launchctl bootstrap system ${LAUNCHD_FILE}"
     fi
     
     sleep 2
@@ -907,6 +934,8 @@ CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
 EOF
+            chown root:wheel "${CONFIG_FILE}" 2>/dev/null || true
+            chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
             info "配置文件已更新: ${CONFIG_FILE}"
         else
             step "从配置文件读取参数..."
@@ -960,6 +989,8 @@ CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
 EOF
+        chown root:wheel "${CONFIG_FILE}" 2>/dev/null || true
+        chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
         info "配置文件已生成: ${CONFIG_FILE}"
     fi
 
